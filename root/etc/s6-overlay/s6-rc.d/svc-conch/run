@@ -1,0 +1,38 @@
+#!/usr/bin/with-contenv bash
+# conch — remote shell/exec server, supervised by s6.
+#
+# FAILS CLOSED. conch supports CONCH_ALLOW_NO_AUTH, which disables the HMAC/API-key
+# gate entirely. In a code-server container that is catastrophic: this process can
+# run arbitrary shell commands, and the container typically has the host docker
+# socket mounted, so an unauthenticated conch is root on the docker host. The mod
+# therefore force-unsets it and refuses to start without a key, rather than
+# trusting whoever set the environment to have got it right.
+
+if [[ -n "${CONCH_ALLOW_NO_AUTH:-}" ]]; then
+    echo "[svc-conch] CONCH_ALLOW_NO_AUTH was set — ignoring it, this mod never runs unauthenticated"
+    unset CONCH_ALLOW_NO_AUTH
+fi
+
+if [[ -z "${CONCH_API_KEY:-}" ]]; then
+    echo "[svc-conch] CONCH_API_KEY is not set — refusing to start conch"
+    echo "[svc-conch] set it via the container's --env-file / -e and restart"
+    # Sleep rather than exit: s6 would restart a failing run script immediately and
+    # flood the log. This parks the service in a visible, harmless state.
+    exec sleep infinity
+fi
+
+# Bind all interfaces by default. The container's own address is what matters —
+# reachability is a network/reverse-proxy concern, not this process's.
+export CONCH_HOST="${CONCH_HOST:-0.0.0.0}"
+export CONCH_PORT="${CONCH_PORT:-14216}"
+
+echo "[svc-conch] starting conch on ${CONCH_HOST}:${CONCH_PORT} as abc"
+
+# Run as abc (PUID/PGID), NOT root, so files it creates in the workspace are owned
+# by the same user code-server edits as.
+#
+# ⚠️ Be clear about what this does NOT do: in the LSIO code-server image the docker
+# socket is group 999, and abc is in gid 999, so abc reaches the socket exactly as
+# root would. This is about file ownership, not privilege containment. Gate conch
+# at the network layer.
+exec s6-setuidgid abc /usr/local/bin/conch

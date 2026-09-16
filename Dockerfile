@@ -26,12 +26,25 @@ RUN apk add --no-cache git
 # CGO off so the binary is static and does not care about the target image's libc
 # (LSIO images are Ubuntu-based; this builds on Alpine).
 #
+# The ldflags mirror upstream's Makefile so a mod-built binary reports the same
+# /version payload as an official release build — without them conch serves
+# {"version":"dev","revision":"unknown"} and there is no way to tell from outside
+# which build is deployed. BuildTime is derived from the pinned tag rather than the
+# wall clock so rebuilding the same CONCH_VERSION is reproducible.
+#
 # The clone prints `warning: refs/tags/vX.Y.Z ... is not a commit!` — conch's release
 # tags are annotated tag objects; git resolves them to the underlying commit and the
 # warning is cosmetic.
 RUN git clone --depth 1 --branch "${CONCH_VERSION}" https://github.com/newo-ether/conch /src \
  && cd /src \
- && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /rootfs/usr/local/bin/conch .
+ && REVISION="$(git rev-parse --short HEAD)" \
+ && BUILD_TIME="$(git log -1 --format=%cI)" \
+ && CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+      -ldflags="-s -w \
+        -X github.com/newo-ether/conch/buildinfo.Version=${CONCH_VERSION} \
+        -X github.com/newo-ether/conch/buildinfo.Revision=${REVISION} \
+        -X github.com/newo-ether/conch/buildinfo.BuildTime=${BUILD_TIME}" \
+      -o /rootfs/usr/local/bin/conch .
 
 COPY root/ /rootfs/
 

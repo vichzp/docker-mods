@@ -19,7 +19,7 @@
 FROM golang:1.26-alpine AS build
 
 # Pin the conch release. Bump deliberately; this is a shell-execution server.
-ARG CONCH_VERSION=v1.0.19
+ARG CONCH_VERSION=v1.0.23
 
 RUN apk add --no-cache git
 
